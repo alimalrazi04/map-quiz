@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bigger or smaller? The Mercator test</title>
+    <!-- Cartographic Vector Libraries -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/topojson-client@3"></script>
+    <style>
+        :root {
+            --bg-color: #1a3636;
+            --card-bg: #ffffff;
+            --text-main: #111827;
+            --text-muted: #6b7280;
+            --border-color: #e5e7eb;
+            --box-bg: #ffffff;
+            --header-bg: #f9fafb;
+            --dark-btn: #1c3b3a;
+            --dark-btn-hover: #112525;
+            --correct: #15803d;
+            --incorrect: #b91c1c;
+            --map-stroke: #1c3b3a;
+            --grid-line: #e2e8f0;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+            color: var(--text-main);
+        }
+
+        .game-card {
+            background-color: var(--card-bg);
+            border-radius: 16px;
+            width: 100%;
+            max-width: 680px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+            padding: 28px;
+            position: relative;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255, 255, 255, 0.96);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            font-weight: 700;
+            font-size: 16px;
+            color: var(--dark-btn);
+            border-radius: 16px;
+        }
+
+        .header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .header-left {
+            flex-grow: 1;
+            margin-right: 40px;
+        }
+
+        .progress-bar-container {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 6px;
+        }
+
+        .progress-segment {
+            height: 8px;
+            flex-grow: 1;
+            background-color: #e5e7eb;
+            border-radius: 4px;
+            transition: background-color 0.3s ease;
+        }
+
+        .progress-segment.completed { 
+            background-color: var(--dark-btn); 
+        }
+
+        .round-counter {
+            font-size: 13px;
+            color: var(--text-muted);
+            text-align: right;
+            font-weight: 600;
+        }
+
+        .score-container {
+            text-align: right;
+            line-height: 1;
+        }
+
+        .score-val {
+            font-size: 32px;
+            font-weight: 800;
+            color: var(--text-main);
+        }
+
+        .score-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .map-frame {
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            overflow: hidden;
+            background-color: var(--box-bg);
+            margin-bottom: 22px;
+        }
+
+        .map-frame-header {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            padding: 10px 16px;
+            background-color: var(--header-bg);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+            font-weight: 700;
+            color: #374151;
+            letter-spacing: 0.5px;
+        }
+
+        .map-frame-header span:last-child {
+            text-align: right;
+        }
+
+        .proj-title {
+            text-transform: uppercase;
+            text-align: center;
+            padding: 0 10px;
+        }
+
+        .map-container {
+            height: 260px;
+            display: flex;
+            position: relative;
+            background-color: #ffffff;
+        }
+
+        .map-half {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .map-divider {
+            width: 1px;
+            background-color: var(--border-color);
+            z-index: 2;
+        }
+
+        .country-svg {
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+        }
+
+        /* Curved Earth Gridline Styling */
+        .graticule-path {
+            fill: none;
+            stroke: var(--grid-line);
+            stroke-width: 0.8px;
+        }
+
+        .country-path {
+            fill: rgba(28, 59, 58, 0.05);
+            stroke: var(--map-stroke);
+            stroke-width: 2px;
+            stroke-linejoin: round;
+            stroke-linecap: round;
+        }
+
+        .map-frame-footer {
+            display: flex;
+            border-top: 1px solid var(--border-color);
+            background-color: var(--header-bg);
+        }
+
+        .country-cell {
+            flex: 1;
+            padding: 10px 16px;
+        }
+
+        .country-cell:first-child {
+            border-right: 1px solid var(--border-color);
+        }
+
+        .c-name {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .c-area {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .question-text {
+            font-size: 18px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 18px;
+            color: var(--text-main);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+        }
+
+        button.action-btn-dark {
+            flex: 1;
+            padding: 14px;
+            font-size: 16px;
+            font-weight: 700;
+            background-color: var(--dark-btn);
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        button.action-btn-dark:hover {
+            background-color: var(--dark-btn-hover);
+        }
+
+        .result-panel {
+            display: none;
+        }
+
+        .result-title {
+            font-weight: 800;
+            font-size: 16px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .result-desc-box {
+            border-left: 3px solid var(--incorrect);
+            padding-left: 12px;
+            margin-bottom: 20px;
+        }
+
+        .result-desc {
+            color: var(--text-main);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .btn-primary-dark {
+            width: 100%;
+            padding: 14px;
+            font-size: 16px;
+            font-weight: 700;
+            background-color: var(--dark-btn);
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .btn-primary-dark:hover {
+            background-color: var(--dark-btn-hover);
+        }
+
+        .game-over-panel {
+            display: none;
+            text-align: center;
+            padding: 20px 0;
+        }
+
+        .game-over-title {
+            font-size: 26px;
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+
+        .game-over-score {
+            font-size: 18px;
+            margin-bottom: 20px;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+
+<div class="game-card">
+    <div class="loading-overlay" id="loading-screen">
+        Loading vector maps...
+    </div>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <div class="progress-bar-container" id="progress-bar"></div>
+            <div class="round-counter" id="round-text">1/10</div>
+        </div>
+        <div class="score-container">
+            <div class="score-val" id="score-text">0</div>
+            <div class="score-label">points</div>
+        </div>
+    </div>
+
+    <!-- Map Container -->
+    <div class="map-frame">
+        <div class="map-frame-header">
+            <span>Map A</span>
+            <span class="proj-title" id="projection-title">MERCATOR PROJECTION</span>
+            <span>Map B</span>
+        </div>
+        <div class="map-container">
+            <div class="map-half">
+                <svg class="country-svg" viewBox="0 0 100 100">
+                    <path class="graticule-path" id="grat-a"></path>
+                    <path class="country-path" id="path-a"></path>
+                </svg>
+            </div>
+            <div class="map-divider"></div>
+            <div class="map-half">
+                <svg class="country-svg" viewBox="0 0 100 100">
+                    <path class="graticule-path" id="grat-b"></path>
+                    <path class="country-path" id="path-b"></path>
+                </svg>
+            </div>
+        </div>
+        <div class="map-frame-footer">
+            <div class="country-cell">
+                <div class="c-name" id="name-a">Country Alpha</div>
+                <div class="c-area" id="area-a" style="display:none;">---</div>
+            </div>
+            <div class="country-cell">
+                <div class="c-name" id="name-b">Country Beta</div>
+                <div class="c-area" id="area-b" style="display:none;">---</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Controls & Question -->
+    <div id="state-guess">
+        <div class="question-text">
+            Is <strong>Country Alpha</strong> bigger or smaller than <strong>Country Beta</strong>?
+        </div>
+        <div class="btn-group">
+            <button class="action-btn-dark" onclick="submitGuess('bigger')">Bigger</button>
+            <button class="action-btn-dark" onclick="submitGuess('smaller')">Smaller</button>
+        </div>
+    </div>
+
+    <!-- Results Panel -->
+    <div class="result-panel" id="state-result">
+        <div class="result-title" id="result-title">NOT QUITE!</div>
+        <div class="result-desc-box" id="result-desc-box">
+            <div class="result-desc" id="result-desc"></div>
+        </div>
+        <button class="btn-primary-dark" onclick="nextRound()" id="next-btn">Next Challenge</button>
+    </div>
+
+    <!-- Game Over Panel -->
+    <div class="game-over-panel" id="state-gameover">
+        <div class="game-over-title">Quiz Complete!</div>
+        <div class="game-over-score" id="game-over-score-text">You scored 80 points!</div>
+        <button class="btn-primary-dark" onclick="restartGame()">Play Again</button>
+    </div>
+</div>
+
+<script>
+    const COUNTRIES = [
+        { id: "643", n: "Russia", a: 17098242 },
+        { id: "124", n: "Canada", a: 9984670 },
+        { id: "156", n: "China", a: 9596960 },
+        { id: "840", n: "United States", a: 9833517 },
+        { id: "076", n: "Brazil", a: 8515767 },
+        { id: "036", n: "Australia", a: 7692024 },
+        { id: "356", n: "India", a: 3287263 },
+        { id: "032", n: "Argentina", a: 2780400 },
+        { id: "398", n: "Kazakhstan", a: 2724900 },
+        { id: "012", n: "Algeria", a: 2381741 },
+        { id: "180", n: "DR Congo", a: 2344858 },
+        { id: "304", n: "Greenland", a: 2166086 },
+        { id: "682", n: "Saudi Arabia", a: 2149690 },
+        { id: "484", n: "Mexico", a: 1964375 },
+        { id: "360", n: "Indonesia", a: 1904569 },
+        { id: "729", n: "Sudan", a: 1886068 },
+        { id: "434", n: "Libya", a: 1759540 },
+        { id: "364", n: "Iran", a: 1648195 },
+        { id: "496", n: "Mongolia", a: 1564110 },
+        { id: "604", n: "Peru", a: 1285216 },
+        { id: "148", n: "Chad", a: 1284000 },
+        { id: "562", n: "Niger", a: 1267000 },
+        { id: "024", n: "Angola", a: 1246700 },
+        { id: "466", n: "Mali", a: 1240192 },
+        { id: "710", n: "South Africa", a: 1221037 },
+        { id: "170", n: "Colombia", a: 1141748 },
+        { id: "231", n: "Ethiopia", a: 1104300 },
+        { id: "068", n: "Bolivia", a: 1098581 },
+        { id: "478", n: "Mauritania", a: 1030700 },
+        { id: "818", n: "Egypt", a: 1002450 },
+        { id: "834", n: "Tanzania", a: 945087 },
+        { id: "566", n: "Nigeria", a: 923768 },
+        { id: "862", n: "Venezuela", a: 912050 },
+        { id: "516", n: "Namibia", a: 825615 },
+        { id: "508", n: "Mozambique", a: 801590 },
+        { id: "586", n: "Pakistan", a: 796095 },
+        { id: "792", n: "Turkey", a: 783562 },
+        { id: "152", n: "Chile", a: 756102 },
+        { id: "894", n: "Zambia", a: 752612 },
+        { id: "104", n: "Myanmar", a: 676578 },
+        { id: "004", n: "Afghanistan", a: 652230 },
+        { id: "250", n: "France", a: 643801 },
+        { id: "706", n: "Somalia", a: 637657 },
+        { id: "140", n: "Central African Rep.", a: 622984 },
+        { id: "728", n: "South Sudan", a: 619745 },
+        { id: "804", n: "Ukraine", a: 603500 },
+        { id: "450", n: "Madagascar", a: 587041 },
+        { id: "072", n: "Botswana", a: 582000 },
+        { id: "404", n: "Kenya", a: 580367 },
+        { id: "887", n: "Yemen", a: 527968 },
+        { id: "764", n: "Thailand", a: 513120 },
+        { id: "724", n: "Spain", a: 505992 },
+        { id: "795", n: "Turkmenistan", a: 488100 },
+        { id: "120", n: "Cameroon", a: 475442 },
+        { id: "598", n: "Papua New Guinea", a: 462840 },
+        { id: "752", n: "Sweden", a: 450295 },
+        { id: "860", n: "Uzbekistan", a: 447400 },
+        { id: "504", n: "Morocco", a: 446550 },
+        { id: "368", n: "Iraq", a: 438317 },
+        { id: "392", n: "Japan", a: 377975 },
+        { id: "276", n: "Germany", a: 357022 },
+        { id: "380", n: "Italy", a: 301340 },
+        { id: "826", n: "United Kingdom", a: 242495 },
+        { id: "112", n: "Belarus", a: 207600 }
+    ];
+
+    const TOTAL_ROUNDS = 10;
+    let currentRound = 1;
+    let score = 0;
+    let currentA, currentB;
+    let usedIndices = new Set();
+    let worldGeoFeatures = null;
+
+    async function initData() {
+        try {
+            const res = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+            const topoData = await res.json();
+            worldGeoFeatures = topojson.feature(topoData, topoData.objects.countries);
+            
+            document.getElementById('loading-screen').style.display = 'none';
+            initProgressBar();
+            loadRound();
+        } catch (err) {
+            document.getElementById('loading-screen').innerText = "Failed to load map data.";
+        }
+    }
+
+    function renderCountry(pathId, gratId, country, isRevealed, otherCountry) {
+        const svgPath = d3.select('#' + pathId);
+        const gratPath = d3.select('#' + gratId);
+        
+        const targetId = String(country.id).padStart(3, '0');
+        const feature = worldGeoFeatures.features.find(f => String(f.id).padStart(3, '0') === targetId);
+
+        if (!feature) return;
+
+        let projection;
+        if (!isRevealed) {
+            projection = d3.geoMercator().fitExtent([[10, 10], [90, 90]], feature);
+        } else {
+            const maxArea = Math.max(country.a, otherCountry.a);
+            const scaleRatio = Math.sqrt(country.a / maxArea);
+            const pad = 38 * (1 - Math.max(scaleRatio, 0.22));
+            
+            projection = d3.geoEqualEarth().fitExtent(
+                [[10 + pad, 10 + pad], [90 - pad, 90 - pad]], 
+                feature
+            );
+        }
+
+        const pathGenerator = d3.geoPath().projection(projection);
+        
+        // Generate curved geographic earth gridlines
+        const graticule = d3.geoGraticule().step([10, 10]);
+        gratPath.attr('d', pathGenerator(graticule()));
+        svgPath.attr('d', pathGenerator(feature));
+    }
+
+    function initProgressBar() {
+        const pb = document.getElementById('progress-bar');
+        pb.innerHTML = '';
+        for (let i = 1; i <= TOTAL_ROUNDS; i++) {
+            const seg = document.createElement('div');
+            seg.className = 'progress-segment';
+            seg.id = 'prog-' + i;
+            pb.appendChild(seg);
+        }
+    }
+
+    function pickTwoCountries() {
+        let idxA, idxB;
+        do {
+            idxA = Math.floor(Math.random() * COUNTRIES.length);
+        } while (usedIndices.has(idxA));
+
+        do {
+            idxB = Math.floor(Math.random() * COUNTRIES.length);
+        } while (idxA === idxB);
+
+        usedIndices.add(idxA);
+        return [COUNTRIES[idxA], COUNTRIES[idxB]];
+    }
+
+    function loadRound() {
+        document.getElementById('state-guess').style.display = 'block';
+        document.getElementById('state-result').style.display = 'none';
+        document.getElementById('state-gameover').style.display = 'none';
+        document.getElementById('projection-title').innerText = "MERCATOR PROJECTION";
+        
+        document.getElementById('name-a').innerText = "Country Alpha";
+        document.getElementById('name-b').innerText = "Country Beta";
+
+        document.getElementById('area-a').style.display = 'none';
+        document.getElementById('area-b').style.display = 'none';
+
+        document.getElementById('round-text').innerText = `${currentRound}/${TOTAL_ROUNDS}`;
+        
+        for (let i = 1; i <= TOTAL_ROUNDS; i++) {
+            const seg = document.getElementById('prog-' + i);
+            if (i <= currentRound) {
+                seg.className = 'progress-segment completed';
+            } else {
+                seg.className = 'progress-segment';
+            }
+        }
+
+        const pair = pickTwoCountries();
+        currentA = pair[0];
+        currentB = pair[1];
+
+        renderCountry('path-a', 'grat-a', currentA, false, currentB);
+        renderCountry('path-b', 'grat-b', currentB, false, currentA);
+    }
+
+    function submitGuess(guess) {
+        const isABigger = currentA.a > currentB.a;
+        const isCorrect = (guess === 'bigger' && isABigger) || (guess === 'smaller' && !isABigger);
+
+        if (isCorrect) {
+            score += 10;
+            document.getElementById('score-text').innerText = score;
+        }
+
+        document.getElementById('state-guess').style.display = 'none';
+        document.getElementById('state-result').style.display = 'block';
+        document.getElementById('projection-title').innerText = "EQUAL EARTH PROJECTION (Revealed)";
+
+        document.getElementById('name-a').innerText = currentA.n;
+        document.getElementById('name-b').innerText = currentB.n;
+
+        const areaA = document.getElementById('area-a');
+        const areaB = document.getElementById('area-b');
+        areaA.innerText = currentA.a.toLocaleString() + " sq km";
+        areaB.innerText = currentB.a.toLocaleString() + " sq km";
+        areaA.style.display = 'block';
+        areaB.style.display = 'block';
+
+        renderCountry('path-a', 'grat-a', currentA, true, currentB);
+        renderCountry('path-b', 'grat-b', currentB, true, currentA);
+
+        const titleEl = document.getElementById('result-title');
+        const descBox = document.getElementById('result-desc-box');
+        
+        titleEl.innerText = isCorrect ? "CORRECT!" : "NOT QUITE!";
+        titleEl.style.color = isCorrect ? "var(--correct)" : "var(--incorrect)";
+        descBox.style.borderColor = isCorrect ? "var(--correct)" : "var(--incorrect)";
+
+        const ratio = (Math.max(currentA.a, currentB.a) / Math.min(currentA.a, currentB.a)).toFixed(1);
+        const bigger = isABigger ? currentA : currentB;
+        const smaller = isABigger ? currentB : currentA;
+
+        document.getElementById('result-desc').innerHTML = 
+            `On a Mercator projection, <strong>${currentA.n}</strong> and <strong>${currentB.n}</strong> appear distorted relative to their latitudinal positions. ` +
+            `In reality, <strong>${bigger.n}</strong>'s true land area is over <strong>${ratio} times</strong> that of <strong>${smaller.n}</strong>.`;
+
+        const nextBtn = document.getElementById('next-btn');
+        nextBtn.innerText = (currentRound >= TOTAL_ROUNDS) ? "View Final Results" : "Next Challenge";
+    }
+
+    function nextRound() {
+        if (currentRound >= TOTAL_ROUNDS) {
+            showGameOver();
+        } else {
+            currentRound++;
+            loadRound();
+        }
+    }
+
+    function showGameOver() {
+        document.getElementById('state-guess').style.display = 'none';
+        document.getElementById('state-result').style.display = 'none';
+        document.getElementById('state-gameover').style.display = 'block';
+        document.getElementById('game-over-score-text').innerText = `You scored ${score} out of ${TOTAL_ROUNDS * 10} points!`;
+    }
+
+    function restartGame() {
+        currentRound = 1;
+        score = 0;
+        usedIndices.clear();
+        document.getElementById('score-text').innerText = '0';
+        initProgressBar();
+        loadRound();
+    }
+
+    window.onload = initData;
+</script>
+
+</body>
+</html>
